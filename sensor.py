@@ -1,4 +1,5 @@
 class Sensor:
+    compensation = 0.0
     """ hold info about sensors """
     def __init__(self, **entries):
         self.__dict__.update(entries)

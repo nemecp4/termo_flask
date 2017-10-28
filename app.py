@@ -1,29 +1,25 @@
 from termo_reader import TermoReader
+from TermoDao import TermoDao
 import logging
 from sensor import Sensor
-from webui import TermoUI
 from pathlib import Path
 from datetime import timedelta,datetime
 
-import time
-import os
 import sys
 
 import yaml
-import gzip
 import json
 from flask import Flask, render_template
 import plotly
-
-from operator import itemgetter
 
 #for some reason on ubuntu 14.4 Path.home() fails for me
 #WD=Path.home()
 from os.path import expanduser
 WD=expanduser('~')
- 
+
 CONF_FILE=Path(WD, ".temperature.conf")
 DATA_DIR= Path(WD, "temperature")
+DB_FILE=Path(DATA_DIR, "meteo.db")
 
 DATE_CACHE_SIZE = timedelta(days=1).total_seconds()
 logging.basicConfig(level=logging.INFO)
@@ -31,42 +27,44 @@ sensors = []
 
 app = Flask(__name__)
 
-def formatTimeDate(timestamp):
-    return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
-
 @app.route("/")
-def hello():
+def webui():
     graphs = []
     ids = []
-    for s in sensors:
-        keys = sorted(s.data.keys())
-        keysAsDates = [formatTimeDate(x) for x in keys]
-        values = itemgetter(*keys)(s.data)
-        ids.append("Teplota {} [C]".format(s.name))
-        logging.debug("for %s keys: %s values %s", s.name, keysAsDates, values)
-        graph = dict(
-            data=[
-                dict(
-                    x = keysAsDates,
-                    y = values,
-                    name = s.name,
-                    type='scatter'
-                ),
-            ],
-            layout=dict(
-                    title=s.name
-            )
-        )
-        graphs.append(graph)
-        # Add "ids" to each of the graphs to pass up to the client
+    sixHours = (datetime.now() - timedelta(hours = 6)).timestamp()
+    graphs.append(getGraph(sixHours, ""))
+    ids.append("Teplota za poslednich 6 hodin [C]")
 
+    fiveDays = (datetime.now() - timedelta(days = 5)).timestamp()
+    graphs.append(getGraph(fiveDays, ""))
+
+    ids.append("Teplota za poslednich 5 dni [C]")
     # Convert the figures to JSON
-    # PlotlyJSONEncoder appropriately converts pandas, datetime, etc
+    # PlotlyJSONEn  coder appropriately converts pandas, datetime, etc
     # objects to their JSON equivalents
     graphJSON = json.dumps(graphs, cls=plotly.utils.PlotlyJSONEncoder)
+    status ={}
+    for s in sensors:
+        status[s.name]=dao.getCurrentTemperatue(s.name)
+    return render_template('index.html', ids=ids, sensorStatus=status, graphJSON=graphJSON)
 
-    return render_template('index.html', ids=ids, graphJSON=graphJSON)
-
+def getGraph(timeStamp, label):
+    # generate plotly graph structure
+    graph = dict(
+           data=[],
+           layout=dict(title=label))
+    for s in sensors:
+        rows = dao.readDataNewerThan(s.name, timeStamp)
+        keysAsDates = [x[0] for x in rows]
+        values = [x[1] for x in rows]
+        graph.get('data').append(
+            dict(
+                   x = keysAsDates,
+                   y = values,
+                   name = s.name,
+                   type='scatter'
+            ))
+    return graph
 
 if ( not CONF_FILE.exists()):
     logging.error("Configuration file %s do not exists", str(CONF_FILE))
@@ -88,30 +86,10 @@ with open(str(CONF_FILE)) as f:
 
 logging.info("succesfully load configuration: %s from %s", sensors, str(CONF_FILE) )
 
-logging.info("reading previous state")
-
-limit = time.time()-DATE_CACHE_SIZE
-for s in sensors:
-    i = 0
-    logging.info(" reading previous state for %s from %s", s.name, s.dataFile)
-    if (Path(s.dataFile).exists()):
-        with gzip.open(s.dataFile, "rt") as dataFile:
-            for line in dataFile:
-                parts = line.split(",")
-                if(len(parts)!=2):
-                    logging.waring("Corupted line: %s, ignoring", line)
-                    continue
-                timestamp = float(parts[0])
-
-                if(limit < timestamp):
-                    s.addData(timestamp, float(parts[1]))
-                    i += 1
-
-            logging.info("for sensor %s there was %d data records restored", s.name, i)
-
+dao = TermoDao(str(DB_FILE), sensors)
 
 logging.info("staring sensor read loop")
-reader = TermoReader(sensors)
+reader = TermoReader(sensors, dao)
 reader.start()
 
 logging.info("starting web ui")

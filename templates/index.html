@@ -5,6 +5,9 @@
 </head>
 
 <body>
+    {% for name, temperature in sensorStatus.items() %}
+        {{ name }}: {{ temperature }},
+    {% endfor %}
 
     {% for id in ids %}
         <h3>{{id}}</h3>
