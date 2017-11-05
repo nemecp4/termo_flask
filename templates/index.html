@@ -3,14 +3,16 @@
 
 <head>
 </head>
-
+<meta http-equiv="refresh" content="5"/>
 <body>
+    <h2>
     {% for name, temperature in sensorStatus.items() %}
         {{ name }}: {{ temperature }},
     {% endfor %}
-
+    </h2>
+    Last update:  {{updateTime}} <br>
     {% for id in ids %}
-        <h3>{{id}}</h3>
+        <!-- <h3>{{id}}</h3> -->
         <div id="{{id}}"></div>
     {% endfor %}
 
@@ -33,7 +35,8 @@
         for(var i in graphs) {
             Plotly.plot(ids[i], // the ID of the div, created above
                         graphs[i].data,
-                        graphs[i].layout || {});
+                        graphs[i].layout || {},
+                        {displayModeBar: false});
         }
 
     </script>
